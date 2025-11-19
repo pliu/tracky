@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tracky - Notes</title>
+    <link rel="stylesheet" href="style.css?v={{.Version}}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        <header>
+            <h1>Tracky</h1>
+            <button id="logout-btn" class="hidden">Logout</button>
+        </header>
+
+        <main>
+            <div id="auth-container">
+                <div class="auth-box">
+                    <div class="tabs">
+                        <button id="tab-login" class="active">Login</button>
+                        <button id="tab-signup">Sign Up</button>
+                    </div>
+
+                    <form id="login-form">
+                        <div class="input-group">
+                            <label for="login-username">Username</label>
+                            <input type="text" id="login-username" required>
+                        </div>
+                        <div class="input-group">
+                            <label for="login-password">Password</label>
+                            <input type="password" id="login-password" required>
+                        </div>
+                        <button type="submit" class="primary-btn">Login</button>
+                    </form>
+
+                    <form id="signup-form" class="hidden">
+                        <div class="input-group">
+                            <label for="signup-username">Username</label>
+                            <input type="text" id="signup-username" required>
+                        </div>
+                        <div class="input-group">
+                            <label for="signup-password">Password</label>
+                            <input type="password" id="signup-password" required>
+                        </div>
+                        <button type="submit" class="primary-btn">Sign Up</button>
+                    </form>
+                    <p id="auth-message"></p>
+                </div>
+            </div>
+
+            <div id="notes-container" class="hidden">
+                <div class="create-note">
+                    <textarea id="note-content" placeholder="Write a new note..."></textarea>
+                    <button id="create-note-btn" class="primary-btn">Add Note</button>
+                </div>
+                <div id="notes-list">
+                    <!-- Notes will be injected here -->
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="app.js?v={{.Version}}"></script>
+</body>
+
+</html>
