@@ -68,13 +68,32 @@
                 <div class="notes-header">
                     <button id="back-to-notebooks" class="back-btn">← Back to Notebooks</button>
                     <h2 id="current-notebook-name"></h2>
+                    <button id="view-toggle-btn" class="view-toggle-btn">📅 Calendar</button>
                 </div>
                 <div class="create-note">
                     <textarea id="note-content" placeholder="Write a new note..."></textarea>
                     <button id="create-note-btn" class="primary-btn">Add Note</button>
                 </div>
-                <div id="notes-list">
-                    <!-- Notes will be injected here -->
+
+                <div id="list-view">
+                    <div id="notes-list">
+                        <!-- Notes will be injected here -->
+                    </div>
+                </div>
+
+                <div id="calendar-view" class="hidden">
+                    <div class="calendar-nav">
+                        <button id="prev-month" class="calendar-nav-btn">←</button>
+                        <span id="calendar-month-label"></span>
+                        <button id="next-month" class="calendar-nav-btn">→</button>
+                        <button id="today-btn" class="today-btn">Today</button>
+                    </div>
+                    <div id="calendar-grid">
+                        <!-- Calendar will be injected here -->
+                    </div>
+                    <div id="calendar-notes">
+                        <!-- Selected day's notes will be injected here -->
+                    </div>
                 </div>
             </div>
         </main>

@@ -18,10 +18,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const backToNotebooks = document.getElementById('back-to-notebooks');
     const currentNotebookName = document.getElementById('current-notebook-name');
 
+    // Calendar elements
+    const viewToggleBtn = document.getElementById('view-toggle-btn');
+    const listView = document.getElementById('list-view');
+    const calendarView = document.getElementById('calendar-view');
+    const calendarGrid = document.getElementById('calendar-grid');
+    const calendarNotes = document.getElementById('calendar-notes');
+    const calendarMonthLabel = document.getElementById('calendar-month-label');
+    const prevMonthBtn = document.getElementById('prev-month');
+    const nextMonthBtn = document.getElementById('next-month');
+
     // State
     let isLoggedIn = false;
     let currentNotebook = null;
     let expandedDays = new Set();
+    let currentView = 'list'; // 'list' or 'calendar'
+    let calendarDate = new Date(); // The month being viewed
+    let selectedDate = new Date(); // The selected day
+    let allNotes = []; // Store all notes for calendar view
 
     // Check initial session
     checkSession();
@@ -52,6 +66,12 @@ document.addEventListener('DOMContentLoaded', () => {
     createNoteBtn.addEventListener('click', createNote);
     createNotebookBtn.addEventListener('click', createNotebook);
     backToNotebooks.addEventListener('click', showNotebooks);
+
+    // Calendar event listeners
+    viewToggleBtn.addEventListener('click', toggleView);
+    prevMonthBtn.addEventListener('click', () => navigateMonth(-1));
+    nextMonthBtn.addEventListener('click', () => navigateMonth(1));
+    document.getElementById('today-btn').addEventListener('click', goToToday);
 
     // Functions
     function switchTab(tab) {
@@ -220,7 +240,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(`/api/notes?notebook_id=${currentNotebook.id}`);
             if (res.ok) {
                 const notes = await res.json();
+                allNotes = notes || [];
                 renderNotes(notes);
+                if (currentView === 'calendar') {
+                    renderCalendar();
+                }
             }
         } catch (e) {
             console.error('Failed to fetch notes');
@@ -493,5 +517,152 @@ document.addEventListener('DOMContentLoaded', () => {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // Calendar Functions
+    function toggleView() {
+        if (currentView === 'list') {
+            currentView = 'calendar';
+            listView.classList.add('hidden');
+            calendarView.classList.remove('hidden');
+            viewToggleBtn.textContent = '📋 List';
+            renderCalendar();
+        } else {
+            currentView = 'list';
+            calendarView.classList.add('hidden');
+            listView.classList.remove('hidden');
+            viewToggleBtn.textContent = '📅 Calendar';
+        }
+    }
+
+    function navigateMonth(delta) {
+        calendarDate.setMonth(calendarDate.getMonth() + delta);
+        renderCalendar();
+    }
+
+    function goToToday() {
+        const today = new Date();
+        calendarDate = new Date(today.getFullYear(), today.getMonth(), 1);
+        selectedDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        renderCalendar();
+    }
+
+    function renderCalendar() {
+        const year = calendarDate.getFullYear();
+        const month = calendarDate.getMonth();
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
+
+        calendarMonthLabel.textContent = `${monthNames[month]} ${year}`;
+
+        // Build calendar grid
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const startDay = firstDay.getDay(); // 0 = Sunday
+        const totalDays = lastDay.getDate();
+
+        // Group notes by date for this month
+        const notesByDate = {};
+        allNotes.forEach(note => {
+            const noteDate = new Date(note.created_at);
+            const key = `${noteDate.getFullYear()}-${noteDate.getMonth()}-${noteDate.getDate()}`;
+            if (!notesByDate[key]) notesByDate[key] = [];
+            notesByDate[key].push(note);
+        });
+
+        let html = '<div class="calendar-header">';
+        ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(day => {
+            html += `<div class="calendar-day-name">${day}</div>`;
+        });
+        html += '</div><div class="calendar-days">';
+
+        // Adjust for Monday start (0 = Monday, 6 = Sunday)
+        const adjustedStartDay = startDay === 0 ? 6 : startDay - 1;
+
+        // Empty cells for days before month starts
+        for (let i = 0; i < adjustedStartDay; i++) {
+            html += '<div class="calendar-day empty"></div>';
+        }
+
+        const today = new Date();
+        const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+        const selectedKey = `${selectedDate.getFullYear()}-${selectedDate.getMonth()}-${selectedDate.getDate()}`;
+
+        // Days of the month
+        for (let day = 1; day <= totalDays; day++) {
+            const dateKey = `${year}-${month}-${day}`;
+            const hasNotes = notesByDate[dateKey] && notesByDate[dateKey].length > 0;
+            const isToday = dateKey === todayKey;
+            const isSelected = dateKey === selectedKey;
+
+            let classes = 'calendar-day';
+            if (hasNotes) classes += ' has-notes';
+            if (isToday) classes += ' today';
+            if (isSelected) classes += ' selected';
+
+            html += `<div class="${classes}" data-date="${year}-${month}-${day}">${day}${hasNotes ? '<span class="note-dot"></span>' : ''}</div>`;
+        }
+
+        html += '</div>';
+        calendarGrid.innerHTML = html;
+
+        // Add click handlers
+        calendarGrid.querySelectorAll('.calendar-day:not(.empty)').forEach(dayEl => {
+            dayEl.addEventListener('click', () => {
+                const [y, m, d] = dayEl.dataset.date.split('-').map(Number);
+                selectedDate = new Date(y, m, d);
+                renderCalendar();
+                renderCalendarNotes();
+            });
+        });
+
+        renderCalendarNotes();
+    }
+
+    function renderCalendarNotes() {
+        const selectedKey = `${selectedDate.getFullYear()}-${selectedDate.getMonth()}-${selectedDate.getDate()}`;
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
+
+        const notesForDay = allNotes.filter(note => {
+            const noteDate = new Date(note.created_at);
+            const key = `${noteDate.getFullYear()}-${noteDate.getMonth()}-${noteDate.getDate()}`;
+            return key === selectedKey;
+        });
+
+        const dateStr = `${dayNames[selectedDate.getDay()]}, ${monthNames[selectedDate.getMonth()]} ${selectedDate.getDate()}, ${selectedDate.getFullYear()}`;
+
+        if (notesForDay.length === 0) {
+            calendarNotes.innerHTML = `<h3 class="calendar-notes-header">${dateStr}</h3><p style="text-align:center; color:var(--text-secondary)">No notes for this day.</p>`;
+            return;
+        }
+
+        let html = `<h3 class="calendar-notes-header">${dateStr}</h3>`;
+        notesForDay.forEach(note => {
+            const time = new Date(note.created_at).toLocaleTimeString();
+            html += `
+                <div class="note-card" data-note-id="${note.id}">
+                    <div class="note-header">
+                        <span class="note-meta">${time}</span>
+                        <div class="note-actions">
+                            <button class="edit-btn" title="Edit">✏️</button>
+                            <button class="delete-btn" title="Delete">🗑️</button>
+                        </div>
+                    </div>
+                    <div class="note-content">${escapeHtml(note.content)}</div>
+                </div>
+            `;
+        });
+
+        calendarNotes.innerHTML = html;
+
+        // Add event handlers
+        calendarNotes.querySelectorAll('.note-card').forEach(card => {
+            const noteId = parseInt(card.dataset.noteId);
+            const note = notesForDay.find(n => n.id === noteId);
+            card.querySelector('.edit-btn').addEventListener('click', () => startEdit(card, note));
+            card.querySelector('.delete-btn').addEventListener('click', () => deleteNote(noteId));
+        });
     }
 });
