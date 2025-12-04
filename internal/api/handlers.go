@@ -3,6 +3,9 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
@@ -16,9 +19,68 @@ import (
 	"tracky/internal/store"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/image/draw"
 )
 
-func SignupHandler(w http.ResponseWriter, r *http.Request) {
+const maxImageDimension = 1920 // Max width or height
+const jpegQuality = 85         // JPEG compression quality (1-100)
+
+// compressImage resizes and compresses an image, returning the processed image data
+func compressImage(file io.Reader, ext string) (image.Image, string, error) {
+	var img image.Image
+	var err error
+
+	switch ext {
+	case ".jpg", ".jpeg":
+		img, err = jpeg.Decode(file)
+	case ".png":
+		img, err = png.Decode(file)
+	default:
+		// For unsupported formats (gif, webp), we can't compress - return nil to skip compression
+		return nil, ext, nil
+	}
+
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to decode image: %v", err)
+	}
+
+	// Get original dimensions
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	// Calculate new dimensions if resizing needed
+	if width > maxImageDimension || height > maxImageDimension {
+		var newWidth, newHeight int
+		if width > height {
+			newWidth = maxImageDimension
+			newHeight = int(float64(height) * float64(maxImageDimension) / float64(width))
+		} else {
+			newHeight = maxImageDimension
+			newWidth = int(float64(width) * float64(maxImageDimension) / float64(height))
+		}
+
+		// Resize image
+		resized := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+		draw.CatmullRom.Scale(resized, resized.Bounds(), img, bounds, draw.Over, nil)
+		img = resized
+	}
+
+	// Always save as JPEG for better compression
+	return img, ".jpg", nil
+}
+
+// Handlers holds dependencies for API handlers
+type Handlers struct {
+	Store store.Store
+}
+
+// NewHandlers creates a new Handlers instance
+func NewHandlers(s store.Store) *Handlers {
+	return &Handlers{Store: s}
+}
+
+func (h *Handlers) SignupHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -36,20 +98,20 @@ func SignupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = store.CreateUser(u.Username, string(hashedPassword))
+	err = h.Store.CreateUser(u.Username, string(hashedPassword))
 	if err != nil {
 		http.Error(w, "Username already taken", http.StatusConflict)
 		return
 	}
 
 	// Get user ID and create default notebook
-	userID, _, _ := store.GetUserByUsername(u.Username)
-	store.CreateDefaultNotebook(userID)
+	userID, _, _ := h.Store.GetUserByUsername(u.Username)
+	h.Store.CreateDefaultNotebook(userID)
 
 	w.WriteHeader(http.StatusCreated)
 }
 
-func LoginHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -61,7 +123,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, hash, err := store.GetUserByUsername(u.Username)
+	id, hash, err := h.Store.GetUserByUsername(u.Username)
 	if err != nil {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
@@ -73,52 +135,32 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Ensure user has at least one notebook (for existing users)
-	notebooks, _ := store.GetNotebooks(id)
+	notebooks, _ := h.Store.GetNotebooks(id)
 	if len(notebooks) == 0 {
-		nbID, _ := store.CreateDefaultNotebook(id)
-		store.MigrateOrphanedNotes(id, nbID)
+		h.Store.CreateDefaultNotebook(id)
 	}
 
-	token := auth.CreateSession(id)
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session_token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-	})
+	// Set signed auth cookie
+	auth.SetAuthCookie(w, id)
 
 	w.WriteHeader(http.StatusOK)
 }
 
-func LogoutHandler(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie("session_token")
-	if err != nil {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	auth.DeleteSession(c.Value)
-
-	http.SetCookie(w, &http.Cookie{
-		Name:   "session_token",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
-	})
+func (h *Handlers) LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	auth.ClearAuthCookie(w)
 	w.WriteHeader(http.StatusOK)
 }
 
-func NotebooksHandler(w http.ResponseWriter, r *http.Request) {
-	userID, err := auth.GetUserIDFromRequest(r)
-	if err != nil {
+func (h *Handlers) NotebooksHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.GetUserIDFromContext(r.Context())
+	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		notebooks, err := store.GetNotebooks(userID)
+		notebooks, err := h.Store.GetNotebooks(userID)
 		if err != nil {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
@@ -131,7 +173,7 @@ func NotebooksHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		id, err := store.CreateNotebook(userID, nb.Name)
+		id, err := h.Store.CreateNotebook(userID, nb.Name)
 		if err != nil {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
@@ -144,7 +186,7 @@ func NotebooksHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid notebook ID", http.StatusBadRequest)
 			return
 		}
-		err = store.DeleteNotebook(notebookID, userID)
+		err = h.Store.DeleteNotebook(notebookID, userID)
 		if err != nil {
 			http.Error(w, "Notebook not found", http.StatusNotFound)
 			return
@@ -156,9 +198,9 @@ func NotebooksHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func NotesHandler(w http.ResponseWriter, r *http.Request) {
-	userID, err := auth.GetUserIDFromRequest(r)
-	if err != nil {
+func (h *Handlers) NotesHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.GetUserIDFromContext(r.Context())
+	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -171,7 +213,7 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		notes, err := store.GetNotes(userID, notebookID)
+		notes, err := h.Store.GetNotes(userID, notebookID)
 		if err != nil {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
@@ -182,7 +224,7 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 			for i, n := range notes {
 				noteIDs[i] = n.ID
 			}
-			imageMap, _ := store.GetNoteImagesByNoteIDs(noteIDs)
+			imageMap, _ := h.Store.GetNoteImagesByNoteIDs(noteIDs)
 			for i := range notes {
 				notes[i].Images = imageMap[notes[i].ID]
 			}
@@ -195,7 +237,7 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		err := store.CreateNote(userID, notebookID, n.Content)
+		err := h.Store.CreateNote(userID, notebookID, n.Content)
 		if err != nil {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
@@ -213,7 +255,7 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		err = store.UpdateNote(noteID, userID, n.Content)
+		err = h.Store.UpdateNote(noteID, userID, n.Content)
 		if err != nil {
 			http.Error(w, "Note not found", http.StatusNotFound)
 			return
@@ -227,11 +269,11 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Delete associated images from filesystem
-		images, _ := store.GetNoteImages(noteID)
+		images, _ := h.Store.GetNoteImages(noteID)
 		for _, img := range images {
 			os.Remove(filepath.Join("uploads", img.Filename))
 		}
-		err = store.DeleteNote(noteID, userID)
+		err = h.Store.DeleteNote(noteID, userID)
 		if err != nil {
 			http.Error(w, "Note not found", http.StatusNotFound)
 			return
@@ -243,9 +285,9 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func ImagesHandler(w http.ResponseWriter, r *http.Request) {
-	userID, err := auth.GetUserIDFromRequest(r)
-	if err != nil {
+func (h *Handlers) ImagesHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.GetUserIDFromContext(r.Context())
+	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -284,27 +326,49 @@ func ImagesHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Try to compress the image
+		img, newExt, err := compressImage(file, ext)
+		if err != nil {
+			http.Error(w, "Failed to process image", http.StatusBadRequest)
+			return
+		}
+
+		// Use new extension if compression was applied
+		if newExt != "" {
+			ext = newExt
+		}
+
 		// Generate unique filename
 		filename := fmt.Sprintf("%d_%d_%d%s", userID, noteID, time.Now().UnixNano(), ext)
-		filepath := filepath.Join("uploads", filename)
+		fpath := filepath.Join("uploads", filename)
 
 		// Save file
-		dst, err := os.Create(filepath)
+		dst, err := os.Create(fpath)
 		if err != nil {
 			http.Error(w, "Server error", http.StatusInternalServerError)
 			return
 		}
 		defer dst.Close()
 
-		if _, err := io.Copy(dst, file); err != nil {
-			http.Error(w, "Server error", http.StatusInternalServerError)
-			return
+		if img != nil {
+			// Save compressed image as JPEG
+			if err := jpeg.Encode(dst, img, &jpeg.Options{Quality: jpegQuality}); err != nil {
+				http.Error(w, "Server error", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// For unsupported formats (gif, webp), save as-is
+			file.Seek(0, 0) // Reset file position
+			if _, err := io.Copy(dst, file); err != nil {
+				http.Error(w, "Server error", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		// Save to database
-		imageID, err := store.CreateNoteImage(noteID, filename)
+		imageID, err := h.Store.CreateNoteImage(noteID, filename)
 		if err != nil {
-			os.Remove(filepath)
+			os.Remove(fpath)
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
@@ -321,7 +385,7 @@ func ImagesHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		filename, err := store.DeleteNoteImage(imageID)
+		filename, err := h.Store.DeleteNoteImage(imageID)
 		if err != nil {
 			http.Error(w, "Image not found", http.StatusNotFound)
 			return
@@ -335,4 +399,31 @@ func ImagesHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 	_ = userID // Used for authorization context
+}
+
+// ServeImageHandler serves images with ownership check
+func (h *Handlers) ServeImageHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.GetUserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Extract image ID from path: /uploads/{id}
+	path := strings.TrimPrefix(r.URL.Path, "/uploads/")
+	imageID, err := strconv.Atoi(path)
+	if err != nil {
+		http.Error(w, "Invalid image ID", http.StatusBadRequest)
+		return
+	}
+
+	// Check ownership and get filename
+	filename, err := h.Store.GetNoteImageWithOwner(imageID, userID)
+	if err != nil {
+		http.Error(w, "Image not found", http.StatusNotFound)
+		return
+	}
+
+	// Serve the file
+	http.ServeFile(w, r, filepath.Join("uploads", filename))
 }

@@ -520,7 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
             note.images.forEach(img => {
                 imagesHtml += `
                     <div class="note-image-wrapper" data-image-id="${img.id}">
-                        <img src="/uploads/${img.filename}" alt="Note image" class="note-image">
+                        <img src="/uploads/${img.id}" alt="Note image" class="note-image">
                         <button class="delete-image-btn" title="Delete image">×</button>
                     </div>
                 `;
@@ -735,31 +735,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        let html = `<h3 class="calendar-notes-header">${dateStr}</h3>`;
+        // Build header and notes container
+        calendarNotes.innerHTML = `<h3 class="calendar-notes-header">${dateStr}</h3><div class="calendar-notes-list"></div>`;
+        const notesList = calendarNotes.querySelector('.calendar-notes-list');
+
+        // Use createNoteCard for consistent rendering with images
         notesForDay.forEach(note => {
-            const time = new Date(note.created_at).toLocaleTimeString();
-            html += `
-                <div class="note-card" data-note-id="${note.id}">
-                    <div class="note-header">
-                        <span class="note-meta">${time}</span>
-                        <div class="note-actions">
-                            <button class="edit-btn" title="Edit">✏️</button>
-                            <button class="delete-btn" title="Delete">🗑️</button>
-                        </div>
-                    </div>
-                    <div class="note-content">${escapeHtml(note.content)}</div>
-                </div>
-            `;
-        });
-
-        calendarNotes.innerHTML = html;
-
-        // Add event handlers
-        calendarNotes.querySelectorAll('.note-card').forEach(card => {
-            const noteId = parseInt(card.dataset.noteId);
-            const note = notesForDay.find(n => n.id === noteId);
-            card.querySelector('.edit-btn').addEventListener('click', () => startEdit(card, note));
-            card.querySelector('.delete-btn').addEventListener('click', () => deleteNote(noteId));
+            notesList.appendChild(createNoteCard(note));
         });
     }
 });

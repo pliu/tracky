@@ -13,7 +13,17 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func getNotesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// MCPServer holds dependencies for the MCP server
+type MCPServer struct {
+	store store.Store
+}
+
+// NewMCPServer creates a new MCP server with the given store
+func NewMCPServer(s store.Store) *MCPServer {
+	return &MCPServer{store: s}
+}
+
+func (m *MCPServer) getNotesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	username, err := request.RequireString("username")
 	if err != nil {
 		return mcp.NewToolResultError("username is required"), nil
@@ -41,7 +51,7 @@ func getNotesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	}
 
 	// Look up user ID
-	userID, err := store.GetUserID(username)
+	userID, err := m.store.GetUserID(username)
 	if err == sql.ErrNoRows {
 		return mcp.NewToolResultError("user not found"), nil
 	} else if err != nil {
@@ -49,7 +59,7 @@ func getNotesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	}
 
 	// Look up notebook ID
-	notebookID, err := store.GetNotebookByName(userID, notebook)
+	notebookID, err := m.store.GetNotebookByName(userID, notebook)
 	if err == sql.ErrNoRows {
 		return mcp.NewToolResultError("notebook not found"), nil
 	} else if err != nil {
@@ -57,7 +67,7 @@ func getNotesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	}
 
 	// Query notes
-	notes, err := store.GetNotesByTimeRange(userID, notebookID, start, end)
+	notes, err := m.store.GetNotesByTimeRange(userID, notebookID, start, end)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("database error: %v", err)), nil
 	}
@@ -74,7 +84,7 @@ func getNotesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	return mcp.NewToolResultText(fmt.Sprintf("Found %d notes:\n%s", len(notes), strings.Join(noteStrings, "\n"))), nil
 }
 
-func NewServer() *server.StreamableHTTPServer {
+func (m *MCPServer) Server() *server.StreamableHTTPServer {
 	// Initialize MCP Server
 	mcpServer := server.NewMCPServer("Tracky", "1.0.0")
 
@@ -91,7 +101,7 @@ func NewServer() *server.StreamableHTTPServer {
 		mcp.WithOpenWorldHintAnnotation(false),
 	)
 
-	mcpServer.AddTool(tool, getNotesHandler)
+	mcpServer.AddTool(tool, m.getNotesHandler)
 
 	// Create SSE server
 	return server.NewStreamableHTTPServer(mcpServer, server.WithStateLess(true))

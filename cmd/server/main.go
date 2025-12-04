@@ -5,20 +5,39 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"tracky/internal/api"
 	"tracky/internal/mcp"
 	"tracky/internal/middleware"
-	"tracky/internal/store"
+	"tracky/internal/store/sqlstore"
 )
 
 var version = strconv.FormatInt(time.Now().Unix(), 10)
 
 func main() {
-	store.InitDB()
-	defer store.DB.Close()
+	// Determine database type from environment (default SQLite)
+	dbDriver := os.Getenv("DB_DRIVER")
+	if dbDriver == "" {
+		dbDriver = "sqlite3"
+	}
+	dbConnStr := os.Getenv("DB_CONN")
+	if dbConnStr == "" {
+		dbConnStr = "./tracky.db"
+	}
+
+	// Initialize store
+	store, err := sqlstore.New(dbDriver, dbConnStr)
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer store.Close()
+
+	// Create handlers
+	handlers := api.NewHandlers(store)
+	mcpServer := mcp.NewMCPServer(store)
 
 	mux := http.NewServeMux()
 
@@ -35,21 +54,21 @@ func main() {
 	// Serve other static files
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 
-	mux.HandleFunc("/api/signup", api.SignupHandler)
-	mux.HandleFunc("/api/login", api.LoginHandler)
-	mux.HandleFunc("/api/logout", api.LogoutHandler)
-	mux.HandleFunc("/api/notebooks", api.NotebooksHandler)
-	mux.HandleFunc("/api/notes", api.NotesHandler)
-	mux.HandleFunc("/api/images", api.ImagesHandler)
+	mux.HandleFunc("/api/signup", handlers.SignupHandler)
+	mux.HandleFunc("/api/login", handlers.LoginHandler)
+	mux.HandleFunc("/api/logout", handlers.LogoutHandler)
+	mux.HandleFunc("/api/notebooks", handlers.NotebooksHandler)
+	mux.HandleFunc("/api/notes", handlers.NotesHandler)
+	mux.HandleFunc("/api/images", handlers.ImagesHandler)
 
-	// Serve uploaded images
-	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
+	// Serve uploaded images with authentication
+	mux.HandleFunc("/uploads/", handlers.ServeImageHandler)
 
 	// Add MCP route
-	sseServer := mcp.NewServer()
-	mux.Handle("/mcp", sseServer)
+	mux.Handle("/mcp", mcpServer.Server())
 
-	handler := middleware.Logging(mux)
+	// Apply middleware: Logging -> Auth
+	handler := middleware.Logging(middleware.Auth(mux))
 
 	fmt.Println("Server started at :8080")
 	log.Fatal(http.ListenAndServe(":8080", handler))

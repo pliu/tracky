@@ -15,3 +15,10 @@ test:
 # Clean build artifacts
 clean:
 	rm -f tracky
+
+docker-up:
+	docker-compose up -d
+
+docker-down:
+	docker-compose down
+	
