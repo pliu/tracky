@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements
     const authContainer = document.getElementById('auth-container');
+    const notebooksContainer = document.getElementById('notebooks-container');
     const notesContainer = document.getElementById('notes-container');
     const loginForm = document.getElementById('login-form');
     const signupForm = document.getElementById('signup-form');
@@ -11,10 +12,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const noteContent = document.getElementById('note-content');
     const createNoteBtn = document.getElementById('create-note-btn');
     const notesList = document.getElementById('notes-list');
+    const notebooksList = document.getElementById('notebooks-list');
+    const notebookName = document.getElementById('notebook-name');
+    const createNotebookBtn = document.getElementById('create-notebook-btn');
+    const backToNotebooks = document.getElementById('back-to-notebooks');
+    const currentNotebookName = document.getElementById('current-notebook-name');
 
     // State
     let isLoggedIn = false;
-    let expandedDays = new Set(); // Track which day groups are expanded
+    let currentNotebook = null;
+    let expandedDays = new Set();
 
     // Check initial session
     checkSession();
@@ -43,6 +50,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     createNoteBtn.addEventListener('click', createNote);
+    createNotebookBtn.addEventListener('click', createNotebook);
+    backToNotebooks.addEventListener('click', showNotebooks);
 
     // Functions
     function switchTab(tab) {
@@ -92,25 +101,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function setLoggedIn(status) {
         isLoggedIn = status;
+        currentNotebook = null;
         if (status) {
             authContainer.classList.add('hidden');
-            notesContainer.classList.remove('hidden');
             logoutBtn.classList.remove('hidden');
-            fetchNotes();
+            showNotebooks();
         } else {
             authContainer.classList.remove('hidden');
+            notebooksContainer.classList.add('hidden');
             notesContainer.classList.add('hidden');
             logoutBtn.classList.add('hidden');
             notesList.innerHTML = '';
+            notebooksList.innerHTML = '';
             loginForm.reset();
             signupForm.reset();
             authMessage.textContent = '';
         }
     }
 
+    function showNotebooks() {
+        currentNotebook = null;
+        notesContainer.classList.add('hidden');
+        notebooksContainer.classList.remove('hidden');
+        fetchNotebooks();
+    }
+
+    function showNotes(notebook) {
+        currentNotebook = notebook;
+        currentNotebookName.textContent = notebook.name;
+        notebooksContainer.classList.add('hidden');
+        notesContainer.classList.remove('hidden');
+        fetchNotes();
+    }
+
     async function checkSession() {
         try {
-            const res = await fetch('/api/notes');
+            const res = await fetch('/api/notebooks');
             if (res.ok) {
                 setLoggedIn(true);
             } else {
@@ -121,9 +147,77 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function fetchNotes() {
+    async function fetchNotebooks() {
         try {
-            const res = await fetch('/api/notes');
+            const res = await fetch('/api/notebooks');
+            if (res.ok) {
+                const notebooks = await res.json();
+                renderNotebooks(notebooks);
+            }
+        } catch (e) {
+            console.error('Failed to fetch notebooks');
+        }
+    }
+
+    function renderNotebooks(notebooks) {
+        notebooksList.innerHTML = '';
+        if (!notebooks || notebooks.length === 0) {
+            notebooksList.innerHTML = '<p style="text-align:center; color:var(--text-secondary)">No notebooks yet.</p>';
+            return;
+        }
+
+        notebooks.forEach(nb => {
+            const div = document.createElement('div');
+            div.className = 'notebook-card';
+            div.innerHTML = `
+                <span class="notebook-name">${escapeHtml(nb.name)}</span>
+                <button class="delete-notebook-btn" title="Delete">🗑️</button>
+            `;
+            div.addEventListener('click', () => showNotes(nb));
+            div.querySelector('.delete-notebook-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteNotebook(nb.id);
+            });
+            notebooksList.appendChild(div);
+        });
+    }
+
+    async function createNotebook() {
+        const name = notebookName.value.trim();
+        if (!name) return;
+
+        try {
+            const res = await fetch('/api/notebooks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+
+            if (res.ok) {
+                notebookName.value = '';
+                fetchNotebooks();
+            }
+        } catch (e) {
+            console.error('Failed to create notebook');
+        }
+    }
+
+    async function deleteNotebook(id) {
+        if (!confirm('Delete this notebook and all its notes?')) return;
+        try {
+            const res = await fetch(`/api/notebooks?id=${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                fetchNotebooks();
+            }
+        } catch (e) {
+            console.error('Failed to delete notebook');
+        }
+    }
+
+    async function fetchNotes() {
+        if (!currentNotebook) return;
+        try {
+            const res = await fetch(`/api/notes?notebook_id=${currentNotebook.id}`);
             if (res.ok) {
                 const notes = await res.json();
                 renderNotes(notes);
@@ -134,11 +228,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function createNote() {
+        if (!currentNotebook) return;
         const content = noteContent.value.trim();
         if (!content) return;
 
         try {
-            const res = await fetch('/api/notes', {
+            const res = await fetch(`/api/notes?notebook_id=${currentNotebook.id}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content })
@@ -186,7 +281,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const contentDiv = noteCard.querySelector('.note-content');
         const actionsDiv = noteCard.querySelector('.note-actions');
 
-        // Hide content, show textarea
         contentDiv.classList.add('hidden');
         actionsDiv.classList.add('hidden');
 
@@ -220,7 +314,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Group notes by day
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const weekAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
@@ -239,7 +332,6 @@ document.addEventListener('DOMContentLoaded', () => {
             groups[dayKey].notes.push(note);
         });
 
-        // Sort days from most recent to oldest
         const sortedDays = Object.keys(groups).sort((a, b) => new Date(b) - new Date(a));
 
         sortedDays.forEach(dayKey => {
@@ -248,7 +340,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const isThisWeek = group.date >= weekAgo;
 
             if (isToday) {
-                // Today's notes - show directly
                 const header = document.createElement('h3');
                 header.className = 'day-header';
                 header.textContent = 'Today';
@@ -258,17 +349,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     notesList.appendChild(createNoteCard(note));
                 });
             } else if (isThisWeek) {
-                // This week's notes - collapsible
                 const details = document.createElement('details');
                 details.className = 'day-group';
                 details.setAttribute('data-day', dayKey);
 
-                // Restore expanded state
                 if (expandedDays.has(dayKey)) {
                     details.open = true;
                 }
 
-                // Track toggle state
                 details.addEventListener('toggle', () => {
                     if (details.open) {
                         expandedDays.add(dayKey);
@@ -287,17 +375,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 notesList.appendChild(details);
             } else {
-                // Older notes - collapsible with date
                 const details = document.createElement('details');
                 details.className = 'day-group';
                 details.setAttribute('data-day', dayKey);
 
-                // Restore expanded state
                 if (expandedDays.has(dayKey)) {
                     details.open = true;
                 }
 
-                // Track toggle state
                 details.addEventListener('toggle', () => {
                     if (details.open) {
                         expandedDays.add(dayKey);

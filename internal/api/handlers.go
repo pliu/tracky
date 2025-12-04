@@ -36,6 +36,10 @@ func SignupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get user ID and create default notebook
+	userID, _, _ := store.GetUserByUsername(u.Username)
+	store.CreateDefaultNotebook(userID)
+
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -60,6 +64,13 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(u.Password)); err != nil {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
+	}
+
+	// Ensure user has at least one notebook (for existing users)
+	notebooks, _ := store.GetNotebooks(id)
+	if len(notebooks) == 0 {
+		nbID, _ := store.CreateDefaultNotebook(id)
+		store.MigrateOrphanedNotes(id, nbID)
 	}
 
 	token := auth.CreateSession(id)
@@ -92,7 +103,7 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func NotesHandler(w http.ResponseWriter, r *http.Request) {
+func NotebooksHandler(w http.ResponseWriter, r *http.Request) {
 	userID, err := auth.GetUserIDFromRequest(r)
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -101,7 +112,60 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		notes, err := store.GetNotes(userID)
+		notebooks, err := store.GetNotebooks(userID)
+		if err != nil {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(notebooks)
+
+	case http.MethodPost:
+		var nb models.Notebook
+		if err := json.NewDecoder(r.Body).Decode(&nb); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		id, err := store.CreateNotebook(userID, nb.Name)
+		if err != nil {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]int64{"id": id})
+
+	case http.MethodDelete:
+		notebookID, err := strconv.Atoi(r.URL.Query().Get("id"))
+		if err != nil {
+			http.Error(w, "Invalid notebook ID", http.StatusBadRequest)
+			return
+		}
+		err = store.DeleteNotebook(notebookID, userID)
+		if err != nil {
+			http.Error(w, "Notebook not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func NotesHandler(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromRequest(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	notebookID, err := strconv.Atoi(r.URL.Query().Get("notebook_id"))
+	if err != nil && r.Method != http.MethodPut && r.Method != http.MethodDelete {
+		http.Error(w, "Invalid notebook ID", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		notes, err := store.GetNotes(userID, notebookID)
 		if err != nil {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
@@ -114,7 +178,7 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		err := store.CreateNote(userID, n.Content)
+		err := store.CreateNote(userID, notebookID, n.Content)
 		if err != nil {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return

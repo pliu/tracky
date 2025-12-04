@@ -53,7 +53,22 @@
                 </div>
             </div>
 
+            <div id="notebooks-container" class="hidden">
+                <h2>Your Notebooks</h2>
+                <div class="create-notebook">
+                    <input type="text" id="notebook-name" placeholder="New notebook name...">
+                    <button id="create-notebook-btn" class="primary-btn">Create Notebook</button>
+                </div>
+                <div id="notebooks-list">
+                    <!-- Notebooks will be injected here -->
+                </div>
+            </div>
+
             <div id="notes-container" class="hidden">
+                <div class="notes-header">
+                    <button id="back-to-notebooks" class="back-btn">← Back to Notebooks</button>
+                    <h2 id="current-notebook-name"></h2>
+                </div>
                 <div class="create-note">
                     <textarea id="note-content" placeholder="Write a new note..."></textarea>
                     <button id="create-note-btn" class="primary-btn">Add Note</button>

@@ -8,9 +8,17 @@ type User struct {
 	Password string `json:"password"`
 }
 
-type Note struct {
+type Notebook struct {
 	ID        int       `json:"id"`
 	UserID    int       `json:"user_id"`
-	Content   string    `json:"content"`
+	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type Note struct {
+	ID         int       `json:"id"`
+	UserID     int       `json:"user_id"`
+	NotebookID int       `json:"notebook_id"`
+	Content    string    `json:"content"`
+	CreatedAt  time.Time `json:"created_at"`
 }

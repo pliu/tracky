@@ -18,6 +18,10 @@ func getNotesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	if err != nil {
 		return mcp.NewToolResultError("username is required"), nil
 	}
+	notebook, err := request.RequireString("notebook")
+	if err != nil {
+		return mcp.NewToolResultError("notebook is required"), nil
+	}
 	startDateStr, err := request.RequireString("start_date")
 	if err != nil {
 		return mcp.NewToolResultError("start_date is required"), nil
@@ -44,8 +48,16 @@ func getNotesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 		return mcp.NewToolResultError(fmt.Sprintf("database error: %v", err)), nil
 	}
 
+	// Look up notebook ID
+	notebookID, err := store.GetNotebookByName(userID, notebook)
+	if err == sql.ErrNoRows {
+		return mcp.NewToolResultError("notebook not found"), nil
+	} else if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("database error: %v", err)), nil
+	}
+
 	// Query notes
-	notes, err := store.GetNotesByTimeRange(userID, start, end)
+	notes, err := store.GetNotesByTimeRange(userID, notebookID, start, end)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("database error: %v", err)), nil
 	}
@@ -68,8 +80,9 @@ func NewServer() *server.StreamableHTTPServer {
 
 	// Define tool
 	tool := mcp.NewTool("get_notes",
-		mcp.WithDescription("Retrieve notes for a user within a specific time range."),
+		mcp.WithDescription("Retrieve notes for a user from a specific notebook within a time range."),
 		mcp.WithString("username", mcp.Required(), mcp.Description("The username to fetch notes for")),
+		mcp.WithString("notebook", mcp.Required(), mcp.Description("The notebook name to fetch notes from")),
 		mcp.WithString("start_date", mcp.Required(), mcp.Description("Start of the time range (RFC3339), e.g. 2023-01-01T00:00:00Z")),
 		mcp.WithString("end_date", mcp.Required(), mcp.Description("End of the time range (RFC3339), e.g. 2023-12-31T23:59:59Z")),
 		mcp.WithIdempotentHintAnnotation(true),

@@ -38,6 +38,7 @@ func main() {
 	mux.HandleFunc("/api/signup", api.SignupHandler)
 	mux.HandleFunc("/api/login", api.LoginHandler)
 	mux.HandleFunc("/api/logout", api.LogoutHandler)
+	mux.HandleFunc("/api/notebooks", api.NotebooksHandler)
 	mux.HandleFunc("/api/notes", api.NotesHandler)
 
 	// Add MCP route
