@@ -2,8 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"tracky/internal/auth"
 	"tracky/internal/models"
@@ -170,6 +176,17 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
+		// Get images for all notes
+		if len(notes) > 0 {
+			noteIDs := make([]int, len(notes))
+			for i, n := range notes {
+				noteIDs[i] = n.ID
+			}
+			imageMap, _ := store.GetNoteImagesByNoteIDs(noteIDs)
+			for i := range notes {
+				notes[i].Images = imageMap[notes[i].ID]
+			}
+		}
 		json.NewEncoder(w).Encode(notes)
 
 	case http.MethodPost:
@@ -209,6 +226,11 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid note ID", http.StatusBadRequest)
 			return
 		}
+		// Delete associated images from filesystem
+		images, _ := store.GetNoteImages(noteID)
+		for _, img := range images {
+			os.Remove(filepath.Join("uploads", img.Filename))
+		}
 		err = store.DeleteNote(noteID, userID)
 		if err != nil {
 			http.Error(w, "Note not found", http.StatusNotFound)
@@ -219,4 +241,98 @@ func NotesHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func ImagesHandler(w http.ResponseWriter, r *http.Request) {
+	userID, err := auth.GetUserIDFromRequest(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		// Parse multipart form (max 10MB)
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			http.Error(w, "File too large", http.StatusBadRequest)
+			return
+		}
+
+		noteID, err := strconv.Atoi(r.FormValue("note_id"))
+		if err != nil {
+			http.Error(w, "Invalid note ID", http.StatusBadRequest)
+			return
+		}
+
+		file, header, err := r.FormFile("image")
+		if err != nil {
+			http.Error(w, "No image provided", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		// Validate file extension
+		ext := strings.ToLower(filepath.Ext(header.Filename))
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".gif" && ext != ".webp" {
+			http.Error(w, "Invalid file type", http.StatusBadRequest)
+			return
+		}
+
+		// Create uploads directory if it doesn't exist
+		if err := os.MkdirAll("uploads", 0755); err != nil {
+			http.Error(w, "Server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Generate unique filename
+		filename := fmt.Sprintf("%d_%d_%d%s", userID, noteID, time.Now().UnixNano(), ext)
+		filepath := filepath.Join("uploads", filename)
+
+		// Save file
+		dst, err := os.Create(filepath)
+		if err != nil {
+			http.Error(w, "Server error", http.StatusInternalServerError)
+			return
+		}
+		defer dst.Close()
+
+		if _, err := io.Copy(dst, file); err != nil {
+			http.Error(w, "Server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Save to database
+		imageID, err := store.CreateNoteImage(noteID, filename)
+		if err != nil {
+			os.Remove(filepath)
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":       imageID,
+			"filename": filename,
+		})
+
+	case http.MethodDelete:
+		imageID, err := strconv.Atoi(r.URL.Query().Get("id"))
+		if err != nil {
+			http.Error(w, "Invalid image ID", http.StatusBadRequest)
+			return
+		}
+
+		filename, err := store.DeleteNoteImage(imageID)
+		if err != nil {
+			http.Error(w, "Image not found", http.StatusNotFound)
+			return
+		}
+
+		// Delete file from filesystem
+		os.Remove(filepath.Join("uploads", filename))
+		w.WriteHeader(http.StatusOK)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+	_ = userID // Used for authorization context
 }

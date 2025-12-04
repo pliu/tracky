@@ -40,6 +40,10 @@ func main() {
 	mux.HandleFunc("/api/logout", api.LogoutHandler)
 	mux.HandleFunc("/api/notebooks", api.NotebooksHandler)
 	mux.HandleFunc("/api/notes", api.NotesHandler)
+	mux.HandleFunc("/api/images", api.ImagesHandler)
+
+	// Serve uploaded images
+	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
 
 	// Add MCP route
 	sseServer := mcp.NewServer()

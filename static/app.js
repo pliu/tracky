@@ -28,6 +28,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const prevMonthBtn = document.getElementById('prev-month');
     const nextMonthBtn = document.getElementById('next-month');
 
+    // Lightbox elements
+    const lightbox = document.getElementById('image-lightbox');
+    const lightboxImage = document.getElementById('lightbox-image');
+
+    // Lightbox close handlers
+    document.querySelector('.lightbox-close').addEventListener('click', () => {
+        lightbox.classList.add('hidden');
+    });
+    lightbox.addEventListener('click', (e) => {
+        if (e.target === lightbox) {
+            lightbox.classList.add('hidden');
+        }
+    });
+
     // State
     let isLoggedIn = false;
     let currentNotebook = null;
@@ -498,19 +512,102 @@ document.addEventListener('DOMContentLoaded', () => {
         const dateTime = new Date(note.created_at).toLocaleString();
         const div = document.createElement('div');
         div.className = 'note-card';
+
+        // Build images HTML
+        let imagesHtml = '';
+        if (note.images && note.images.length > 0) {
+            imagesHtml = '<div class="note-images">';
+            note.images.forEach(img => {
+                imagesHtml += `
+                    <div class="note-image-wrapper" data-image-id="${img.id}">
+                        <img src="/uploads/${img.filename}" alt="Note image" class="note-image">
+                        <button class="delete-image-btn" title="Delete image">×</button>
+                    </div>
+                `;
+            });
+            imagesHtml += '</div>';
+        }
+
         div.innerHTML = `
             <div class="note-header">
                 <span class="note-meta">${dateTime}</span>
                 <div class="note-actions">
+                    <label class="upload-btn" title="Add image">📷
+                        <input type="file" accept="image/*" style="display:none" class="image-upload-input">
+                    </label>
                     <button class="edit-btn" title="Edit">✏️</button>
                     <button class="delete-btn" title="Delete">🗑️</button>
                 </div>
             </div>
             <div class="note-content">${escapeHtml(note.content)}</div>
+            ${imagesHtml}
         `;
+
         div.querySelector('.edit-btn').addEventListener('click', () => startEdit(div, note));
         div.querySelector('.delete-btn').addEventListener('click', () => deleteNote(note.id));
+
+        // Image upload handler
+        div.querySelector('.image-upload-input').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                await uploadImage(note.id, file);
+            }
+            e.target.value = '';
+        });
+
+        // Image delete handlers
+        div.querySelectorAll('.delete-image-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const wrapper = e.target.closest('.note-image-wrapper');
+                const imageId = wrapper.dataset.imageId;
+                await deleteImage(imageId);
+            });
+        });
+
+        // Image click to open lightbox
+        div.querySelectorAll('.note-image').forEach(img => {
+            img.addEventListener('click', (e) => {
+                e.stopPropagation();
+                lightboxImage.src = img.src;
+                lightbox.classList.remove('hidden');
+            });
+        });
+
         return div;
+    }
+
+    async function uploadImage(noteId, file) {
+        const formData = new FormData();
+        formData.append('note_id', noteId);
+        formData.append('image', file);
+
+        try {
+            const res = await fetch('/api/images', {
+                method: 'POST',
+                body: formData
+            });
+            if (res.ok) {
+                fetchNotes();
+            } else {
+                alert('Failed to upload image');
+            }
+        } catch (e) {
+            console.error('Failed to upload image', e);
+        }
+    }
+
+    async function deleteImage(imageId) {
+        try {
+            const res = await fetch(`/api/images?id=${imageId}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                fetchNotes();
+            }
+        } catch (e) {
+            console.error('Failed to delete image', e);
+        }
     }
 
     function escapeHtml(text) {

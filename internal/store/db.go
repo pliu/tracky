@@ -46,6 +46,15 @@ func InitDB() {
 		FOREIGN KEY(notebook_id) REFERENCES notebooks(id)
 	);`
 
+	createNoteImagesTable := `
+	CREATE TABLE IF NOT EXISTS note_images (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		note_id INTEGER NOT NULL,
+		filename TEXT NOT NULL,
+		created_at DATETIME NOT NULL,
+		FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE CASCADE
+	);`
+
 	if _, err := DB.Exec(createUsersTable); err != nil {
 		log.Fatal(err)
 	}
@@ -53,6 +62,9 @@ func InitDB() {
 		log.Fatal(err)
 	}
 	if _, err := DB.Exec(createNotesTable); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := DB.Exec(createNoteImagesTable); err != nil {
 		log.Fatal(err)
 	}
 
@@ -203,4 +215,78 @@ func DeleteNote(noteID, userID int) error {
 func MigrateOrphanedNotes(userID int, defaultNotebookID int64) error {
 	_, err := DB.Exec("UPDATE notes SET notebook_id = ? WHERE user_id = ? AND notebook_id IS NULL", defaultNotebookID, userID)
 	return err
+}
+
+// Note Image functions
+func CreateNoteImage(noteID int, filename string) (int64, error) {
+	result, err := DB.Exec("INSERT INTO note_images (note_id, filename, created_at) VALUES (?, ?, ?)", noteID, filename, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func GetNoteImages(noteID int) ([]models.NoteImage, error) {
+	rows, err := DB.Query("SELECT id, filename, created_at FROM note_images WHERE note_id = ? ORDER BY created_at ASC", noteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var images []models.NoteImage
+	for rows.Next() {
+		var img models.NoteImage
+		img.NoteID = noteID
+		if err := rows.Scan(&img.ID, &img.Filename, &img.CreatedAt); err != nil {
+			continue
+		}
+		images = append(images, img)
+	}
+	return images, nil
+}
+
+func DeleteNoteImage(imageID int) (string, error) {
+	var filename string
+	err := DB.QueryRow("SELECT filename FROM note_images WHERE id = ?", imageID).Scan(&filename)
+	if err != nil {
+		return "", err
+	}
+	_, err = DB.Exec("DELETE FROM note_images WHERE id = ?", imageID)
+	if err != nil {
+		return "", err
+	}
+	return filename, nil
+}
+
+func GetNoteImagesByNoteIDs(noteIDs []int) (map[int][]models.NoteImage, error) {
+	if len(noteIDs) == 0 {
+		return make(map[int][]models.NoteImage), nil
+	}
+
+	// Build query with placeholders
+	placeholders := ""
+	args := make([]interface{}, len(noteIDs))
+	for i, id := range noteIDs {
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+		args[i] = id
+	}
+
+	rows, err := DB.Query("SELECT id, note_id, filename, created_at FROM note_images WHERE note_id IN ("+placeholders+") ORDER BY created_at ASC", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int][]models.NoteImage)
+	for rows.Next() {
+		var img models.NoteImage
+		if err := rows.Scan(&img.ID, &img.NoteID, &img.Filename, &img.CreatedAt); err != nil {
+			continue
+		}
+		result[img.NoteID] = append(result[img.NoteID], img)
+	}
+	return result, nil
 }
