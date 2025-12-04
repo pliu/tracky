@@ -316,101 +316,167 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const weekAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
-
-        const groups = {};
         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
+
+        // Helper to get ISO week number (Monday = start of week)
+        function getWeekNumber(date) {
+            const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+            const dayNum = d.getUTCDay() || 7; // Make Sunday = 7
+            d.setUTCDate(d.getUTCDate() + 4 - dayNum); // Set to Thursday of this week
+            const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+            return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        }
+
+        // Helper to get Monday of the week for a given date (using local time)
+        function getMondayOfWeek(date) {
+            const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            const day = d.getDay();
+            const diff = day === 0 ? -6 : 1 - day; // Sunday = -6, else 1 - dayOfWeek
+            d.setDate(d.getDate() + diff);
+            return d;
+        }
+
+        // Helper to create a consistent local date key
+        function getLocalDateKey(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // Group notes hierarchically: year -> month -> week (by Monday) -> day
+        const hierarchy = {};
+        let todayNotes = [];
 
         notes.forEach(note => {
             const noteDate = new Date(note.created_at);
             const noteDay = new Date(noteDate.getFullYear(), noteDate.getMonth(), noteDate.getDate());
-            const dayKey = noteDay.toISOString().split('T')[0];
 
-            if (!groups[dayKey]) {
-                groups[dayKey] = { date: noteDay, notes: [] };
+            if (noteDay.getTime() === today.getTime()) {
+                todayNotes.push(note);
+                return;
             }
-            groups[dayKey].notes.push(note);
+
+            const monday = getMondayOfWeek(noteDay);
+            const year = monday.getFullYear();
+            const month = monday.getMonth();
+            const weekKey = getLocalDateKey(monday);
+            const dayKey = getLocalDateKey(noteDay);
+
+            if (!hierarchy[year]) hierarchy[year] = {};
+            if (!hierarchy[year][month]) hierarchy[year][month] = {};
+            if (!hierarchy[year][month][weekKey]) hierarchy[year][month][weekKey] = { monday: monday, days: {} };
+            if (!hierarchy[year][month][weekKey].days[dayKey]) {
+                hierarchy[year][month][weekKey].days[dayKey] = { date: noteDay, notes: [] };
+            }
+            hierarchy[year][month][weekKey].days[dayKey].notes.push(note);
         });
 
-        const sortedDays = Object.keys(groups).sort((a, b) => new Date(b) - new Date(a));
+        // Render today's notes first
+        if (todayNotes.length > 0) {
+            const header = document.createElement('h3');
+            header.className = 'day-header';
+            header.textContent = 'Today';
+            notesList.appendChild(header);
+            todayNotes.forEach(note => notesList.appendChild(createNoteCard(note)));
+        }
 
-        sortedDays.forEach(dayKey => {
-            const group = groups[dayKey];
-            const isToday = group.date.getTime() === today.getTime();
-            const isThisWeek = group.date >= weekAgo;
+        // Most recent period for pre-opening
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
 
-            if (isToday) {
-                const header = document.createElement('h3');
-                header.className = 'day-header';
-                header.textContent = 'Today';
-                notesList.appendChild(header);
+        // Render hierarchical structure
+        const years = Object.keys(hierarchy).sort((a, b) => b - a);
 
-                group.notes.forEach(note => {
-                    notesList.appendChild(createNoteCard(note));
-                });
-            } else if (isThisWeek) {
-                const details = document.createElement('details');
-                details.className = 'day-group';
-                details.setAttribute('data-day', dayKey);
+        years.forEach((year, yearIndex) => {
+            const yearDetails = document.createElement('details');
+            yearDetails.className = 'year-group';
+            if (parseInt(year) === currentYear) yearDetails.open = true;
 
-                if (expandedDays.has(dayKey)) {
-                    details.open = true;
+            const yearSummary = document.createElement('summary');
+            yearSummary.textContent = year;
+            yearDetails.appendChild(yearSummary);
+
+            const months = Object.keys(hierarchy[year]).sort((a, b) => b - a);
+
+            months.forEach((month, monthIndex) => {
+                const monthDetails = document.createElement('details');
+                monthDetails.className = 'month-group';
+                if (parseInt(year) === currentYear && parseInt(month) === currentMonth) {
+                    monthDetails.open = true;
                 }
 
-                details.addEventListener('toggle', () => {
-                    if (details.open) {
-                        expandedDays.add(dayKey);
-                    } else {
-                        expandedDays.delete(dayKey);
+                const monthSummary = document.createElement('summary');
+                monthSummary.textContent = monthNames[parseInt(month)];
+                monthDetails.appendChild(monthSummary);
+
+                const weeks = Object.keys(hierarchy[year][month]).sort((a, b) => new Date(b) - new Date(a));
+
+                weeks.forEach((weekKey, weekIndex) => {
+                    const weekData = hierarchy[year][month][weekKey];
+                    const weekDetails = document.createElement('details');
+                    weekDetails.className = 'week-group';
+
+                    // Check if this is the current week
+                    const currentMonday = getMondayOfWeek(now);
+                    if (weekData.monday.toDateString() === currentMonday.toDateString()) {
+                        weekDetails.open = true;
                     }
+
+                    const weekSummary = document.createElement('summary');
+                    weekSummary.textContent = `Week of ${weekData.monday.toLocaleDateString()}`;
+                    weekDetails.appendChild(weekSummary);
+
+                    const days = Object.keys(weekData.days).sort((a, b) => new Date(b) - new Date(a));
+
+                    days.forEach(dayKey => {
+                        const dayData = weekData.days[dayKey];
+                        const dayDetails = document.createElement('details');
+                        dayDetails.className = 'day-group';
+                        dayDetails.setAttribute('data-day', dayKey);
+
+                        if (expandedDays.has(dayKey)) {
+                            dayDetails.open = true;
+                        }
+
+                        dayDetails.addEventListener('toggle', () => {
+                            if (dayDetails.open) {
+                                expandedDays.add(dayKey);
+                            } else {
+                                expandedDays.delete(dayKey);
+                            }
+                        });
+
+                        const daySummary = document.createElement('summary');
+                        daySummary.textContent = `${dayNames[dayData.date.getDay()]} ${dayData.date.getDate()}`;
+                        dayDetails.appendChild(daySummary);
+
+                        dayData.notes.forEach(note => {
+                            dayDetails.appendChild(createNoteCard(note));
+                        });
+
+                        weekDetails.appendChild(dayDetails);
+                    });
+
+                    monthDetails.appendChild(weekDetails);
                 });
 
-                const summary = document.createElement('summary');
-                summary.textContent = dayNames[group.date.getDay()] + ' (' + group.notes.length + ' notes)';
-                details.appendChild(summary);
+                yearDetails.appendChild(monthDetails);
+            });
 
-                group.notes.forEach(note => {
-                    details.appendChild(createNoteCard(note));
-                });
-
-                notesList.appendChild(details);
-            } else {
-                const details = document.createElement('details');
-                details.className = 'day-group';
-                details.setAttribute('data-day', dayKey);
-
-                if (expandedDays.has(dayKey)) {
-                    details.open = true;
-                }
-
-                details.addEventListener('toggle', () => {
-                    if (details.open) {
-                        expandedDays.add(dayKey);
-                    } else {
-                        expandedDays.delete(dayKey);
-                    }
-                });
-
-                const summary = document.createElement('summary');
-                summary.textContent = group.date.toLocaleDateString() + ' (' + group.notes.length + ' notes)';
-                details.appendChild(summary);
-
-                group.notes.forEach(note => {
-                    details.appendChild(createNoteCard(note));
-                });
-
-                notesList.appendChild(details);
-            }
+            notesList.appendChild(yearDetails);
         });
     }
 
     function createNoteCard(note) {
-        const time = new Date(note.created_at).toLocaleTimeString();
+        const dateTime = new Date(note.created_at).toLocaleString();
         const div = document.createElement('div');
         div.className = 'note-card';
         div.innerHTML = `
             <div class="note-header">
-                <span class="note-meta">${time}</span>
+                <span class="note-meta">${dateTime}</span>
                 <div class="note-actions">
                     <button class="edit-btn" title="Edit">✏️</button>
                     <button class="delete-btn" title="Delete">🗑️</button>

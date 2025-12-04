@@ -309,11 +309,18 @@ textarea:focus {
     font-weight: 600;
 }
 
+/* Hierarchical Groups */
+.year-group,
+.month-group,
+.week-group,
 .day-group {
-    margin-bottom: 15px;
+    margin-bottom: 8px;
 }
 
-.day-group summary {
+.year-group>summary,
+.month-group>summary,
+.week-group>summary,
+.day-group>summary {
     cursor: pointer;
     padding: 12px 15px;
     background-color: var(--surface-color);
@@ -323,11 +330,44 @@ textarea:focus {
     transition: var(--transition);
 }
 
-.day-group summary:hover {
+.year-group>summary:hover,
+.month-group>summary:hover,
+.week-group>summary:hover,
+.day-group>summary:hover {
     background-color: #2a2a2a;
 }
 
-.day-group[open] summary {
+.year-group>summary {
+    font-size: 1.1rem;
+    color: var(--primary-color);
+}
+
+.month-group>summary {
+    font-size: 1rem;
+    color: var(--secondary-color);
+}
+
+.week-group>summary {
+    font-size: 0.95rem;
+}
+
+/* Nesting indentation */
+.year-group>.month-group {
+    margin-left: 15px;
+    margin-top: 8px;
+}
+
+.month-group>.week-group {
+    margin-left: 15px;
+    margin-top: 8px;
+}
+
+.week-group>.day-group {
+    margin-left: 15px;
+    margin-top: 8px;
+}
+
+.day-group[open]>summary {
     border-radius: var(--border-radius) var(--border-radius) 0 0;
     margin-bottom: 0;
 }
