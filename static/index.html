@@ -68,7 +68,10 @@
                 <div class="notes-header">
                     <button id="back-to-notebooks" class="back-btn">← Back to Notebooks</button>
                     <h2 id="current-notebook-name"></h2>
-                    <button id="view-toggle-btn" class="view-toggle-btn">📅 Calendar</button>
+                    <div class="header-actions">
+                        <button id="analysis-btn" class="analysis-btn">🤖 Analysis</button>
+                        <button id="view-toggle-btn" class="view-toggle-btn">📅 Calendar</button>
+                    </div>
                 </div>
                 <div class="create-note">
                     <textarea id="note-content" placeholder="Write a new note..."></textarea>
@@ -91,8 +94,34 @@
                     <div id="calendar-grid">
                         <!-- Calendar will be injected here -->
                     </div>
+                    <div class="create-note calendar-create-note">
+                        <textarea id="calendar-note-content" placeholder="Write a new note..."></textarea>
+                        <button id="calendar-create-note-btn" class="primary-btn">Add Note</button>
+                    </div>
                     <div id="calendar-notes">
                         <!-- Selected day's notes will be injected here -->
+                    </div>
+                </div>
+
+                <!-- Analysis Chat View -->
+                <div id="analysis-view" class="hidden">
+                    <div class="analysis-header">
+                        <button id="back-to-notes" class="back-btn">← Back to Notes</button>
+                        <h3>Ask about your notes</h3>
+                    </div>
+                    <div id="analysis-chat" class="analysis-chat">
+                        <div class="analysis-welcome">
+                            <p>Ask questions about your notes, like:</p>
+                            <ul>
+                                <li>"What did I work on this week?"</li>
+                                <li>"Summarize my notes from this month"</li>
+                                <li>"What themes appear in my notes?"</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="analysis-input">
+                        <textarea id="analysis-question" placeholder="Ask a question about your notes..."></textarea>
+                        <button id="send-question-btn" class="primary-btn">Send</button>
                     </div>
                 </div>
             </div>

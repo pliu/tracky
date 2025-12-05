@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const logoutBtn = document.getElementById('logout-btn');
     const noteContent = document.getElementById('note-content');
     const createNoteBtn = document.getElementById('create-note-btn');
+    const listCreateNote = document.querySelector('.create-note:not(.calendar-create-note)');
     const notesList = document.getElementById('notes-list');
     const notebooksList = document.getElementById('notebooks-list');
     const notebookName = document.getElementById('notebook-name');
@@ -27,6 +28,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const calendarMonthLabel = document.getElementById('calendar-month-label');
     const prevMonthBtn = document.getElementById('prev-month');
     const nextMonthBtn = document.getElementById('next-month');
+    const calendarNoteContent = document.getElementById('calendar-note-content');
+    const calendarCreateNoteBtn = document.getElementById('calendar-create-note-btn');
+
+    // Analysis elements
+    const analysisBtn = document.getElementById('analysis-btn');
+    const analysisView = document.getElementById('analysis-view');
+    const analysisChat = document.getElementById('analysis-chat');
+    const analysisQuestion = document.getElementById('analysis-question');
+    const sendQuestionBtn = document.getElementById('send-question-btn');
+    const backToNotesBtn = document.getElementById('back-to-notes');
 
     // Lightbox elements
     const lightbox = document.getElementById('image-lightbox');
@@ -50,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let calendarDate = new Date(); // The month being viewed
     let selectedDate = new Date(); // The selected day
     let allNotes = []; // Store all notes for calendar view
+    let chatHistory = []; // Store chat history for context
 
     // Check initial session
     checkSession();
@@ -77,7 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
         setLoggedIn(false);
     });
 
-    createNoteBtn.addEventListener('click', createNote);
+    createNoteBtn.addEventListener('click', () => createNote());
+    calendarCreateNoteBtn.addEventListener('click', () => createNote(calendarNoteContent));
     createNotebookBtn.addEventListener('click', createNotebook);
     backToNotebooks.addEventListener('click', showNotebooks);
 
@@ -86,6 +99,17 @@ document.addEventListener('DOMContentLoaded', () => {
     prevMonthBtn.addEventListener('click', () => navigateMonth(-1));
     nextMonthBtn.addEventListener('click', () => navigateMonth(1));
     document.getElementById('today-btn').addEventListener('click', goToToday);
+
+    // Analysis event listeners
+    analysisBtn.addEventListener('click', showAnalysis);
+    backToNotesBtn.addEventListener('click', hideAnalysis);
+    sendQuestionBtn.addEventListener('click', sendAnalysisQuestion);
+    analysisQuestion.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendAnalysisQuestion();
+        }
+    });
 
     // Functions
     function switchTab(tab) {
@@ -161,6 +185,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showNotes(notebook) {
+        // Always clear chat history when entering a notebook
+        chatHistory = [];
+        const welcome = `
+            <div class="analysis-welcome">
+                <p>Ask questions about your notes, like:</p>
+                <ul>
+                    <li>"What did I work on this week?"</li>
+                    <li>"Summarize my notes from this month"</li>
+                    <li>"What themes appear in my notes?"</li>
+                </ul>
+            </div>`;
+        analysisChat.innerHTML = welcome;
         currentNotebook = notebook;
         currentNotebookName.textContent = notebook.name;
         notebooksContainer.classList.add('hidden');
@@ -265,9 +301,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function createNote() {
+    async function createNote(textareaEl = noteContent) {
         if (!currentNotebook) return;
-        const content = noteContent.value.trim();
+        const content = textareaEl.value.trim();
         if (!content) return;
 
         try {
@@ -278,7 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (res.ok) {
-                noteContent.value = '';
+                textareaEl.value = '';
                 fetchNotes();
             }
         } catch (e) {
@@ -621,6 +657,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentView === 'list') {
             currentView = 'calendar';
             listView.classList.add('hidden');
+            listCreateNote.classList.add('hidden');
             calendarView.classList.remove('hidden');
             viewToggleBtn.textContent = '📋 List';
             renderCalendar();
@@ -628,6 +665,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentView = 'list';
             calendarView.classList.add('hidden');
             listView.classList.remove('hidden');
+            listCreateNote.classList.remove('hidden');
             viewToggleBtn.textContent = '📅 Calendar';
         }
     }
@@ -743,5 +781,93 @@ document.addEventListener('DOMContentLoaded', () => {
         notesForDay.forEach(note => {
             notesList.appendChild(createNoteCard(note));
         });
+    }
+
+    // Analysis Functions
+    function showAnalysis() {
+        listView.classList.add('hidden');
+        calendarView.classList.add('hidden');
+        listCreateNote.classList.add('hidden');
+        analysisView.classList.remove('hidden');
+        viewToggleBtn.classList.add('hidden');
+        analysisBtn.classList.add('hidden');
+    }
+
+    function hideAnalysis() {
+        analysisView.classList.add('hidden');
+        viewToggleBtn.classList.remove('hidden');
+        analysisBtn.classList.remove('hidden');
+        if (currentView === 'calendar') {
+            calendarView.classList.remove('hidden');
+        } else {
+            listView.classList.remove('hidden');
+            listCreateNote.classList.remove('hidden');
+        }
+    }
+
+    async function sendAnalysisQuestion() {
+        const question = analysisQuestion.value.trim();
+        if (!question || !currentNotebook) return;
+
+        // Add user question to chat UI
+        addChatMessage('user', question);
+        analysisQuestion.value = '';
+
+        // Show loading indicator
+        const loadingId = addChatMessage('assistant', '<div class="loading-dots"><span></span><span></span><span></span></div>');
+
+        try {
+            const res = await fetch('/api/analysis', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    notebook_id: currentNotebook.id,
+                    question: question,
+                    history: chatHistory
+                })
+            });
+
+            // Remove loading indicator
+            document.getElementById(loadingId)?.remove();
+
+            if (res.ok) {
+                const data = await res.json();
+                addChatMessage('assistant', formatMarkdown(data.answer));
+
+                // Update history
+                chatHistory.push({ role: 'user', content: question });
+                chatHistory.push({ role: 'model', content: data.answer });
+            } else {
+                const errorText = await res.text();
+                addChatMessage('assistant', `Error: ${errorText}`);
+            }
+        } catch (e) {
+            document.getElementById(loadingId)?.remove();
+            addChatMessage('assistant', 'Failed to get response. Please try again.');
+        }
+    }
+
+    function addChatMessage(role, content) {
+        // Remove welcome message if present
+        const welcome = analysisChat.querySelector('.analysis-welcome');
+        if (welcome) welcome.remove();
+
+        const id = 'msg-' + Date.now();
+        const div = document.createElement('div');
+        div.id = id;
+        div.className = `chat-message ${role}`;
+        div.innerHTML = content;
+        analysisChat.appendChild(div);
+        analysisChat.scrollTop = analysisChat.scrollHeight;
+        return id;
+    }
+
+    function formatMarkdown(text) {
+        // Basic markdown to HTML conversion
+        return text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`(.*?)`/g, '<code>$1</code>')
+            .replace(/\n/g, '<br>');
     }
 });

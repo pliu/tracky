@@ -427,3 +427,59 @@ func (h *Handlers) ServeImageHandler(w http.ResponseWriter, r *http.Request) {
 	// Serve the file
 	http.ServeFile(w, r, filepath.Join("uploads", filename))
 }
+
+// AnalysisHandler handles note analysis requests using Gemini
+func (h *Handlers) AnalysisHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := auth.GetUserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		NotebookID int                  `json:"notebook_id"`
+		Question   string               `json:"question"`
+		History    []models.ChatMessage `json:"history"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Question == "" {
+		http.Error(w, "Question is required", http.StatusBadRequest)
+		return
+	}
+
+	// Fetch all notes from the notebook
+	notes, err := h.Store.GetNotes(userID, req.NotebookID)
+	if err != nil {
+		http.Error(w, "Failed to fetch notes", http.StatusInternalServerError)
+		return
+	}
+
+	if len(notes) == 0 {
+		json.NewEncoder(w).Encode(map[string]string{
+			"answer": "There are no notes in this notebook to analyze.",
+		})
+		return
+	}
+
+	// Call Gemini API
+	// Call Gemini API
+	answer, err := AnalyzeNotes(notes, req.Question, req.History)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Analysis failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"answer": answer,
+	})
+}

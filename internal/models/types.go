@@ -30,3 +30,8 @@ type Note struct {
 	CreatedAt  time.Time   `json:"created_at"`
 	Images     []NoteImage `json:"images"`
 }
+
+type ChatMessage struct {
+	Role    string `json:"role"` // "user" or "model"
+	Content string `json:"content"`
+}
