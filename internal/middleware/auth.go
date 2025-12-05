@@ -44,7 +44,7 @@ func isPublicEndpoint(path string) bool {
 		}
 	}
 	// Prefix match paths
-	prefixPaths := []string{"/static/", "/mcp"}
+	prefixPaths := []string{"/static/"}
 	for _, p := range prefixPaths {
 		if strings.HasPrefix(path, p) {
 			return true

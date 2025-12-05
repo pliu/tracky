@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"tracky/internal/api"
-	"tracky/internal/mcp"
 	"tracky/internal/middleware"
 	"tracky/internal/store/sqlstore"
 )
@@ -37,7 +36,6 @@ func main() {
 
 	// Create handlers
 	handlers := api.NewHandlers(store)
-	mcpServer := mcp.NewMCPServer(store)
 
 	mux := http.NewServeMux()
 
@@ -63,9 +61,6 @@ func main() {
 
 	// Serve uploaded images with authentication
 	mux.HandleFunc("/uploads/", handlers.ServeImageHandler)
-
-	// Add MCP route
-	mux.Handle("/mcp", mcpServer.Server())
 
 	// Apply middleware: Logging -> Auth
 	handler := middleware.Logging(middleware.Auth(mux))
