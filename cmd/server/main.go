@@ -58,6 +58,7 @@ func main() {
 	mux.HandleFunc("/api/notebooks", handlers.NotebooksHandler)
 	mux.HandleFunc("/api/notes", handlers.NotesHandler)
 	mux.HandleFunc("/api/images", handlers.ImagesHandler)
+	mux.HandleFunc("/api/analysis", handlers.AnalysisHandler)
 
 	// Serve uploaded images with authentication
 	mux.HandleFunc("/uploads/", handlers.ServeImageHandler)

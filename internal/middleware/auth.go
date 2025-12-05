@@ -50,5 +50,12 @@ func isPublicEndpoint(path string) bool {
 			return true
 		}
 	}
+	// Static files served from root (style.css, app.js, etc.)
+	staticExtensions := []string{".css", ".js", ".ico", ".png", ".jpg", ".svg", ".woff", ".woff2"}
+	for _, ext := range staticExtensions {
+		if strings.HasSuffix(path, ext) {
+			return true
+		}
+	}
 	return false
 }

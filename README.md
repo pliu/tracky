@@ -1,2 +1,2 @@
-# reviewy
-Go-based work tracking system
+# tracky
+Go-based note-tracking system
